@@ -71,7 +71,9 @@ class HybridRAGService:
         graphrag_method: Literal["local", "global"] = "local",
         # Router 설정
         use_quick_check: bool = False,
-        router_model: str = "gpt-5.2"
+        router_model: str = "gpt-5.2",
+        # 로딩 설정
+        eager_loading: bool = True
     ):
         """
         Args:
@@ -86,6 +88,7 @@ class HybridRAGService:
             graphrag_method: GraphRAG 검색 방법 ("local" 또는 "global")
             use_quick_check: 키워드 사전 필터링 사용 여부
             router_model: QueryRouter LLM 모델
+            eager_loading: True면 즉시 로딩, False면 Lazy Loading
         """
         self.search_type = search_type
         self.use_reranker = use_reranker
@@ -93,8 +96,9 @@ class HybridRAGService:
         self.final_k = final_k
         self.graphrag_method = graphrag_method
         self.use_quick_check = use_quick_check
+        self.eager_loading = eager_loading
 
-        # 컴포넌트 Lazy Loading
+        # 컴포넌트 초기화
         self._rag_chain = None
         self._graphrag_retriever = None
         self._query_router = None
@@ -108,13 +112,38 @@ class HybridRAGService:
             "search_type": search_type,
             "use_reranker": use_reranker,
             "initial_k": initial_k,
-            "final_k": final_k
+            "final_k": final_k,
+            "eager_loading": eager_loading
         }
         self._graphrag_config = {
             "root_dir": graphrag_root_dir,
             "community_level": graphrag_community_level
         }
         self._router_model = router_model
+        
+        # Eager Loading: 즉시 컴포넌트 로드
+        if eager_loading:
+            self._init_all()
+    
+    def _init_all(self):
+        """모든 컴포넌트 즉시 초기화"""
+        logger.info("HybridRAGService 즉시 로딩 시작...")
+        
+        _ = self.rag_chain  # RAGChain (내부에서 vectorstore, llm, reranker 등 로드)
+        logger.info("  ✓ RAGChain 로드 완료")
+        
+        _ = self.query_router  # QueryRouter
+        logger.info("  ✓ QueryRouter 로드 완료")
+        
+        _ = self.graphrag_retriever  # GraphRAG
+        logger.info("  ✓ GraphRAG 로드 완료")
+        
+        # 법령 질문용 별도 Reranker (RAGChain의 것과 별개)
+        from .contextual_retriever import Reranker
+        logger.info("  🔄 HybridRAG용 Reranker 로딩...")
+        self._reranker = Reranker(eager_loading=True)
+        
+        logger.info("HybridRAGService 즉시 로딩 완료!")
 
     @property
     def rag_chain(self) -> RAGChain:

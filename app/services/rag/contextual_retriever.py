@@ -161,16 +161,25 @@ class Reranker:
     Cross-encoder 모델을 사용하여 query-document 관련성을 직접 평가합니다.
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3"):
+    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", eager_loading: bool = True):
         """
         Args:
             model_name: 사용할 reranker 모델
                 - "BAAI/bge-reranker-v2-m3": 다국어 지원, 높은 성능
                 - "cross-encoder/ms-marco-MiniLM-L-6-v2": 빠른 속도
+            eager_loading: True면 즉시 모델 로드
         """
         self.model_name = model_name
         self._model = None
         self._use_llm_rerank = False
+        
+        if eager_loading:
+            logger.info(f"Reranker 모델 로딩 중: {model_name}")
+            _ = self.model  # 즉시 로드
+            if self._use_llm_rerank:
+                logger.warning("Reranker: LLM fallback 사용")
+            else:
+                logger.info("Reranker 모델 로드 완료")
 
     @property
     def model(self):
@@ -178,8 +187,8 @@ class Reranker:
         if self._model is None:
             try:
                 from sentence_transformers import CrossEncoder
-                self._model = CrossEncoder(self.model_name)
-                logger.info(f"Loaded reranker model: {self.model_name}")
+                self._model = CrossEncoder(self.model_name, device="cpu") # CPU 사용
+                logger.info(f"Loaded reranker model: {self.model_name} (CPU)")
             except ImportError:
                 logger.warning(
                     "sentence-transformers not installed. "

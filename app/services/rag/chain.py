@@ -411,7 +411,8 @@ class RAGChain:
         search_type: Literal["similarity", "bm25", "hybrid"] = "hybrid",
         use_reranker: bool = True,
         initial_k: int = 5,
-        final_k: int = 5
+        final_k: int = 5,
+        eager_loading: bool = True
     ):
         """
         Args:
@@ -421,6 +422,7 @@ class RAGChain:
             use_reranker: Reranker 사용 여부
             initial_k: 초기 검색 문서 수 (reranking 전)
             final_k: 최종 사용 문서 수 (reranking 후)
+            eager_loading: True면 즉시 로딩, False면 Lazy Loading
         """
         self.collection_name = collection_name or settings.chroma_collection_name
         self.persist_directory = persist_directory or str(settings.chroma_persist_dir)
@@ -435,10 +437,36 @@ class RAGChain:
         self._vectorstore = None
         self._retriever = None
         self._contextual_retriever = None
+        
+        # Eager Loading: 즉시 모든 모델 로드
+        if eager_loading:
+            self._init_all()
+    
+    def _init_all(self):
+        """모든 컴포넌트 즉시 초기화"""
+        logger.info("RAGChain 즉시 로딩 시작...")
+        
+        # 순서 중요: embeddings -> vectorstore -> retriever -> llm
+        _ = self.embeddings
+        logger.info("  ✓ Embeddings 로드 완료")
+        
+        _ = self.vectorstore
+        logger.info("  ✓ VectorStore 로드 완료")
+        
+        if self.search_type in ["bm25", "hybrid"]:
+            _ = self.contextual_retriever
+            logger.info("  ✓ ContextualRetriever 로드 완료 (BM25 + Reranker)")
+        else:
+            _ = self.retriever
+            logger.info("  ✓ Retriever 로드 완료")
+        
+        _ = self.llm
+        logger.info("  ✓ LLM 로드 완료")
+        logger.info("RAGChain 즉시 로딩 완료!")
 
     @property
     def llm(self) -> ChatOpenAI:
-        """LLM 인스턴스 (Lazy Loading)"""
+        """LLM 인스턴스"""
         if self._llm is None:
             self._llm = ChatOpenAI(
                 api_key=settings.openai_api_key,
