@@ -70,6 +70,9 @@ class Settings(BaseSettings):
         env="CORS_ORIGINS"
     )
 
+    # RAG Configuration
+    enable_reranking: bool = Field(default=True, env="ENABLE_RERANKING")
+    
     # Debug
     debug: bool = Field(default=True, env="DEBUG")
     

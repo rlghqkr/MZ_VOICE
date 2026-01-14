@@ -139,9 +139,12 @@ class HybridRAGService:
         logger.info("  ✓ GraphRAG 로드 완료")
         
         # 법령 질문용 별도 Reranker (RAGChain의 것과 별개)
-        from .contextual_retriever import Reranker
-        logger.info("  🔄 HybridRAG용 Reranker 로딩...")
-        self._reranker = Reranker(eager_loading=True)
+        if settings.enable_reranking:
+            from .contextual_retriever import Reranker
+            logger.info("  🔄 HybridRAG용 Reranker 로딩...")
+            self._reranker = Reranker(eager_loading=True)
+        else:
+            logger.info("  ⏭️ Reranking 비활성화됨 (ENABLE_RERANKING=false)")
         
         logger.info("HybridRAGService 즉시 로딩 완료!")
 
@@ -310,13 +313,14 @@ class HybridRAGService:
             combined_docs = ragchain_docs + graphrag_docs
             logger.info(f"Combined {len(combined_docs)} documents")
 
-            # 4. Reranking으로 상위 5개 선별
-            if len(combined_docs) > 5:
+            # 4. Reranking으로 상위 5개 선별 (옵션)
+            if settings.enable_reranking and len(combined_docs) > 5:
                 reranked_docs = self._rerank_documents(question, combined_docs, top_k=5)
+                logger.info(f"After reranking: {len(reranked_docs)} documents")
             else:
-                reranked_docs = combined_docs
-
-            logger.info(f"After reranking: {len(reranked_docs)} documents")
+                reranked_docs = combined_docs[:5]  # Reranking 없이 상위 5개만
+                if not settings.enable_reranking:
+                    logger.info(f"Reranking disabled, using first {len(reranked_docs)} documents")
 
             # 5. LLM으로 최종 답변 생성
             answer = self._generate_answer(
