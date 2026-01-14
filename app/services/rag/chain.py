@@ -11,6 +11,7 @@ Contextual Retrieval 지원:
 
 import logging
 import json
+import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass
@@ -28,11 +29,15 @@ from .contextual_retriever import (
     generate_chunk_context,
     create_contextualized_chunk
 )
+from ...utils.logging_utils import log_prompt, log_llm_response
 from ..emotion import Emotion
 from ...config import settings
 from ...repositories import VectorStoreRepository
 
 logger = logging.getLogger(__name__)
+
+# 환경변수로 프롬프트 로깅 활성화 여부 제어
+ENABLE_PROMPT_LOGGING = os.getenv("ENABLE_PROMPT_LOGGING", "false").lower() == "true"
 
 
 # ============ Contextual Indexing ============
@@ -411,7 +416,8 @@ class RAGChain:
         search_type: Literal["similarity", "bm25", "hybrid"] = "hybrid",
         use_reranker: bool = True,
         initial_k: int = 5,
-        final_k: int = 5
+        final_k: int = 5,
+        eager_loading: bool = True
     ):
         """
         Args:
@@ -421,6 +427,7 @@ class RAGChain:
             use_reranker: Reranker 사용 여부
             initial_k: 초기 검색 문서 수 (reranking 전)
             final_k: 최종 사용 문서 수 (reranking 후)
+            eager_loading: True면 즉시 로딩, False면 Lazy Loading
         """
         self.collection_name = collection_name or settings.chroma_collection_name
         self.persist_directory = persist_directory or str(settings.chroma_persist_dir)
@@ -435,10 +442,36 @@ class RAGChain:
         self._vectorstore = None
         self._retriever = None
         self._contextual_retriever = None
+        
+        # Eager Loading: 즉시 모든 모델 로드
+        if eager_loading:
+            self._init_all()
+    
+    def _init_all(self):
+        """모든 컴포넌트 즉시 초기화"""
+        logger.info("Initializing RAGChain components")
+        
+        # 순서 중요: embeddings -> vectorstore -> retriever -> llm
+        _ = self.embeddings
+        logger.info("Embeddings model initialized")
+        
+        _ = self.vectorstore
+        logger.info("VectorStore initialized")
+        
+        if self.search_type in ["bm25", "hybrid"]:
+            _ = self.contextual_retriever
+            logger.info("ContextualRetriever initialized (BM25 + Reranker)")
+        else:
+            _ = self.retriever
+            logger.info("Retriever initialized")
+        
+        _ = self.llm
+        logger.info("LLM initialized")
+        logger.info("RAGChain initialization completed")
 
     @property
     def llm(self) -> ChatOpenAI:
-        """LLM 인스턴스 (Lazy Loading)"""
+        """LLM 인스턴스"""
         if self._llm is None:
             self._llm = ChatOpenAI(
                 api_key=settings.openai_api_key,
@@ -696,8 +729,25 @@ class RAGChain:
             "chat_history": chat_history or []
         }
 
+        # 프롬프트 로깅
+        if ENABLE_PROMPT_LOGGING:
+            try:
+                formatted_prompt = RAG_PROMPT_TEMPLATE.format(**chain_input)
+                log_prompt(
+                    logger=logger,
+                    prompt_name="RAG Chain",
+                    prompt_text=formatted_prompt,
+                    user_input=question
+                )
+            except Exception as e:
+                logger.debug(f"Failed to log prompt: {e}")
+
         # 5. 응답 생성
         answer = chain.invoke(chain_input)
+
+        # 응답 로깅
+        if ENABLE_PROMPT_LOGGING:
+            log_llm_response(logger, answer, "RAG Answer")
 
         return RAGResponse(
             answer=answer,

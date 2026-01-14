@@ -7,6 +7,7 @@ Query Router - LLM 기반 쿼리 분류기
 """
 
 import logging
+import os
 from typing import Literal, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -16,8 +17,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from ...config import settings
+from ...utils.logging_utils import log_prompt, log_llm_response
 
 logger = logging.getLogger(__name__)
+
+# 환경변수로 프롬프트 로깅 활성화 여부 제어
+ENABLE_PROMPT_LOGGING = os.getenv("ENABLE_PROMPT_LOGGING", "false").lower() == "true"
 
 
 class QueryType(Enum):
@@ -112,7 +117,22 @@ class QueryRouter:
             RouterResult: 분류 결과
         """
         try:
+            # 프롬프트 로깅
+            if ENABLE_PROMPT_LOGGING:
+                formatted_prompt = ROUTER_PROMPT.format(query=query)
+                log_prompt(
+                    logger=logger,
+                    prompt_name="Query Router",
+                    prompt_text=formatted_prompt,
+                    user_input=query
+                )
+            
             response = self.chain.invoke({"query": query})
+            
+            # 응답 로깅
+            if ENABLE_PROMPT_LOGGING:
+                log_llm_response(logger, response, "Router Classification")
+            
             return self._parse_response(response)
         except Exception as e:
             logger.error(f"Router error: {e}")

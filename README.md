@@ -123,6 +123,9 @@ CHROMA_COLLECTION_NAME=faq_documents
 LLM_MODEL=gpt-4o-mini
 LLM_TEMPERATURE=0.7
 
+# 프롬프트 로깅 (색상 포함)
+ENABLE_PROMPT_LOGGING=false  # true로 설정하면 프롬프트와 LLM 응답을 색상과 함께 로깅
+
 # 서버 설정
 GRADIO_SERVER_PORT=7860
 DEBUG=true
