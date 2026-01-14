@@ -1,0 +1,96 @@
+encoding_model: cl100k_base
+
+models:
+  default_chat_model:
+    type: openai_chat
+    api_key: ${GRAPHRAG_API_KEY}
+    model: gpt-4o-mini
+    model_supports_json: true
+    max_tokens: 4000
+    temperature: 0
+    top_p: 1
+    request_timeout: 180.0
+
+  default_embedding_model:
+    type: openai_embedding
+    api_key: ${GRAPHRAG_API_KEY}
+    model: text-embedding-3-small
+
+input:
+  type: file
+  file_type: text
+  base_dir: input
+  file_encoding: utf-8
+  file_pattern: ".*\\.txt"
+
+cache:
+  type: file
+  base_dir: cache
+
+output:
+  type: file
+  base_dir: output
+
+reporting:
+  type: file
+  base_dir: output
+
+chunks:
+  size: 1200
+  overlap: 100
+  group_by_columns: [id]
+
+extract_graph:
+  prompt: prompts/entity_extraction.txt
+  entity_types:
+    - 법령
+    - 조항
+    - 기관
+    - 용어
+    - 대상자
+    - 요건
+    - 벌칙
+    - 날짜
+  max_gleanings: 1
+
+summarize_descriptions:
+  prompt: prompts/summarize_descriptions.txt
+  max_length: 500
+
+community_reports:
+  max_length: 2000
+  max_input_length: 8000
+
+extract_claims:
+  enabled: false
+
+cluster_graph:
+  max_cluster_size: 10
+
+embed_graph:
+  enabled: true
+
+umap:
+  enabled: false
+
+embed_text:
+  entity_description: true
+  community_report: true
+  text_unit: true
+
+snapshots:
+  graphml: true
+
+local_search:
+  text_unit_prop: 0.5
+  community_prop: 0.1
+  conversation_history_max_turns: 5
+  top_k_entities: 10
+  top_k_relationships: 10
+  max_context_tokens: 12000
+
+global_search:
+  max_context_tokens: 12000
+  data_max_tokens: 12000
+  map_max_length: 1000
+  reduce_max_length: 2000
