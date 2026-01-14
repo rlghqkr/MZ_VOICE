@@ -217,6 +217,7 @@ data/chroma_db/
 data
 docs
 temp
+logs/
 graphrag_project/cache
 graphrag_project/output
 test_*.py

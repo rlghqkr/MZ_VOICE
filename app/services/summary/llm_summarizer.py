@@ -5,6 +5,7 @@ LLM을 사용하여 대화 내용을 요약한다.
 """
 
 import logging
+import os
 from typing import Optional
 from abc import ABC, abstractmethod
 
@@ -12,8 +13,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from ...config import settings
+from ...utils.logging_utils import log_prompt, log_llm_response
 
 logger = logging.getLogger(__name__)
+
+# 환경변수로 프롬프트 로깅 활성화 여부 제어
+ENABLE_PROMPT_LOGGING = os.getenv("ENABLE_PROMPT_LOGGING", "false").lower() == "true"
 
 
 # 요약 프롬프트 템플릿
@@ -102,9 +107,28 @@ class LLMSummarizer(SummarizerBase):
             return "대화 내용이 없습니다."
 
         try:
+            # 프롬프트 로깅
+            if ENABLE_PROMPT_LOGGING:
+                try:
+                    formatted_prompt = SUMMARY_PROMPT.format(conversation=conversation)
+                    log_prompt(
+                        logger=logger,
+                        prompt_name="Conversation Summarizer",
+                        prompt_text=formatted_prompt,
+                        user_input=conversation[:200] + "..." if len(conversation) > 200 else conversation
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to log prompt: {e}")
+            
             chain = SUMMARY_PROMPT | self.llm
             response = chain.invoke({"conversation": conversation})
-            return response.content.strip()
+            summary = response.content.strip()
+            
+            # 응답 로깅
+            if ENABLE_PROMPT_LOGGING:
+                log_llm_response(logger, summary, "Summary")
+            
+            return summary
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
             raise

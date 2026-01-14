@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # RAG Configuration
     enable_reranking: bool = Field(default=True, env="ENABLE_RERANKING")
     
+    # Logging Configuration
+    enable_prompt_logging: bool = Field(default=False, env="ENABLE_PROMPT_LOGGING")
+    
     # Debug
     debug: bool = Field(default=True, env="DEBUG")
     

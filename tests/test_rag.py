@@ -6,8 +6,12 @@ Usage: python tests/test_rag.py
 import sys
 import logging
 import time
+import os
 from pathlib import Path
 from datetime import datetime
+
+# 프롬프트 로깅 활성화 (import 전에 설정 필수!)
+os.environ["ENABLE_PROMPT_LOGGING"] = "true"
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -33,6 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.info(f"Log file: {log_file}")
+logger.info(f"Prompt logging enabled: {os.getenv('ENABLE_PROMPT_LOGGING')}")
 
 from app.services.rag import RAGChain, HybridRAGService
 from app.services.emotion import Emotion

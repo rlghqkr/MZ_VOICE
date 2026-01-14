@@ -174,12 +174,12 @@ class Reranker:
         self._use_llm_rerank = False
         
         if eager_loading:
-            logger.info(f"Reranker 모델 로딩 중: {model_name}")
+            logger.info(f"Loading reranker model: {model_name}")
             _ = self.model  # 즉시 로드
             if self._use_llm_rerank:
-                logger.warning("Reranker: LLM fallback 사용")
+                logger.warning("Reranker: Using LLM fallback")
             else:
-                logger.info("Reranker 모델 로드 완료")
+                logger.info("Reranker model initialized")
 
     @property
     def model(self):

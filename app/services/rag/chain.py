@@ -11,6 +11,7 @@ Contextual Retrieval 지원:
 
 import logging
 import json
+import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass
@@ -28,11 +29,15 @@ from .contextual_retriever import (
     generate_chunk_context,
     create_contextualized_chunk
 )
+from ...utils.logging_utils import log_prompt, log_llm_response
 from ..emotion import Emotion
 from ...config import settings
 from ...repositories import VectorStoreRepository
 
 logger = logging.getLogger(__name__)
+
+# 환경변수로 프롬프트 로깅 활성화 여부 제어
+ENABLE_PROMPT_LOGGING = os.getenv("ENABLE_PROMPT_LOGGING", "false").lower() == "true"
 
 
 # ============ Contextual Indexing ============
@@ -444,25 +449,25 @@ class RAGChain:
     
     def _init_all(self):
         """모든 컴포넌트 즉시 초기화"""
-        logger.info("RAGChain 즉시 로딩 시작...")
+        logger.info("Initializing RAGChain components")
         
         # 순서 중요: embeddings -> vectorstore -> retriever -> llm
         _ = self.embeddings
-        logger.info("  ✓ Embeddings 로드 완료")
+        logger.info("Embeddings model initialized")
         
         _ = self.vectorstore
-        logger.info("  ✓ VectorStore 로드 완료")
+        logger.info("VectorStore initialized")
         
         if self.search_type in ["bm25", "hybrid"]:
             _ = self.contextual_retriever
-            logger.info("  ✓ ContextualRetriever 로드 완료 (BM25 + Reranker)")
+            logger.info("ContextualRetriever initialized (BM25 + Reranker)")
         else:
             _ = self.retriever
-            logger.info("  ✓ Retriever 로드 완료")
+            logger.info("Retriever initialized")
         
         _ = self.llm
-        logger.info("  ✓ LLM 로드 완료")
-        logger.info("RAGChain 즉시 로딩 완료!")
+        logger.info("LLM initialized")
+        logger.info("RAGChain initialization completed")
 
     @property
     def llm(self) -> ChatOpenAI:
@@ -724,8 +729,25 @@ class RAGChain:
             "chat_history": chat_history or []
         }
 
+        # 프롬프트 로깅
+        if ENABLE_PROMPT_LOGGING:
+            try:
+                formatted_prompt = RAG_PROMPT_TEMPLATE.format(**chain_input)
+                log_prompt(
+                    logger=logger,
+                    prompt_name="RAG Chain",
+                    prompt_text=formatted_prompt,
+                    user_input=question
+                )
+            except Exception as e:
+                logger.debug(f"Failed to log prompt: {e}")
+
         # 5. 응답 생성
         answer = chain.invoke(chain_input)
+
+        # 응답 로깅
+        if ENABLE_PROMPT_LOGGING:
+            log_llm_response(logger, answer, "RAG Answer")
 
         return RAGResponse(
             answer=answer,
