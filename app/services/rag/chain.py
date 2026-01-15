@@ -414,7 +414,7 @@ class RAGChain:
         collection_name: str = None,
         persist_directory: str = None,
         search_type: Literal["similarity", "bm25", "hybrid"] = "hybrid",
-        use_reranker: bool = True,
+        use_reranker: bool = False,
         initial_k: int = 5,
         final_k: int = 5,
         eager_loading: bool = True

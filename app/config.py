@@ -38,6 +38,16 @@ class Settings(BaseSettings):
         default="faq_documents",
         env="CHROMA_COLLECTION_NAME"
     )
+
+    # Law ChromaDB Configuration
+    chroma_law_persist_dir: Path = Field(
+        default=Path("./data/chroma_db_law"),
+        env="CHROMA_LAW_PERSIST_DIR"
+    )
+    chroma_law_collection_name: str = Field(
+        default="laws",
+        env="CHROMA_LAW_COLLECTION_NAME"
+    )
     
     # LLM Configuration
     llm_model: str = Field(default="gpt-4o-mini", env="LLM_MODEL")
