@@ -9,7 +9,7 @@ Contextual Retrieval 지원:
 
 Hybrid RAG 지원:
 - QueryRouter: LLM 기반 질문 분류 (법령/일반)
-- GraphRAG: 법령 전용 지식 그래프 검색
+- LawRAGChain: 법령 전용 ChromaDB 검색
 - HybridRAGService: 통합 RAG 서비스
 
 Query Builder:
@@ -33,7 +33,6 @@ from .contextual_retriever import (
     create_contextualized_chunk
 )
 from .query_router import QueryRouter, QueryType, RouterResult, quick_law_check
-from .graphrag_retriever import GraphRAGRetriever, GraphRAGResponse
 from .hybrid_rag_service import HybridRAGService, HybridRAGResponse
 from .query_builder_graph import (
     QueryBuilderGraph,
@@ -69,9 +68,6 @@ __all__ = [
     "QueryType",
     "RouterResult",
     "quick_law_check",
-    # GraphRAG
-    "GraphRAGRetriever",
-    "GraphRAGResponse",
     # Hybrid RAG Service
     "HybridRAGService",
     "HybridRAGResponse",

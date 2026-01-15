@@ -2,8 +2,8 @@
 Hybrid RAG Service - 통합 RAG 서비스
 
 QueryRouter를 사용하여 질문 유형에 따라 적절한 RAG 시스템으로 라우팅합니다.
-- 법령 관련 질문 → RAGChain + GraphRAG 결합 검색 후 Reranking
-- 일반 질문 → RAGChain (Hybrid Search + Reranker)
+- 법령 관련 질문 → LawRAGChain (법령 전용 ChromaDB)
+- 일반 질문 → RAGChain (일반 정책 ChromaDB)
 """
 
 import logging
@@ -17,7 +17,6 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 
 from .chain import RAGChain, RAGResponse
-from .graphrag_retriever import GraphRAGRetriever, GraphRAGResponse
 from .query_router import QueryRouter, QueryType, RouterResult, quick_law_check
 from .prompts import build_system_prompt, RAG_PROMPT_TEMPLATE
 from .contextual_retriever import Reranker
@@ -48,13 +47,13 @@ class HybridRAGService:
     통합 RAG 서비스
 
     QueryRouter(LLM 기반)를 사용하여 질문을 분류하고,
-    - 법령 질문: RAGChain(5개) + GraphRAG(5개) 결합 → Reranking → 상위 5개로 LLM 응답 생성
-    - 일반 질문: RAGChain만 사용 (Hybrid Search + Reranker)
+    - 법령 질문: LawRAGChain (법령 전용 ChromaDB)
+    - 일반 질문: RAGChain (일반 정책 ChromaDB)
 
     Example:
         service = HybridRAGService()
 
-        # 법령 질문 → RAGChain + GraphRAG 결합
+        # 법령 질문 → LawRAGChain
         response = service.query("청년기본법 제3조가 뭐야?")
 
         # 일반 질문 → RAGChain
@@ -63,34 +62,33 @@ class HybridRAGService:
 
     def __init__(
         self,
-        # RAGChain 설정
+        # RAGChain 설정 (일반 정책)
         collection_name: str = None,
         persist_directory: str = None,
+        # LawRAGChain 설정 (법령)
+        law_collection_name: str = None,
+        law_persist_directory: str = None,
+        # 공통 설정
         search_type: Literal["similarity", "bm25", "hybrid"] = "hybrid",
-        use_reranker: bool = True,
+        use_reranker: bool = False,
         initial_k: int = 5,
         final_k: int = 5,
-        # GraphRAG 설정
-        graphrag_root_dir: str = None,
-        graphrag_community_level: int = 2,
-        graphrag_method: Literal["local", "global"] = "local",
         # Router 설정
         use_quick_check: bool = False,
-        router_model: str = "gpt-5.2",
+        router_model: str = "gpt-4o-mini",
         # 로딩 설정
         eager_loading: bool = True
     ):
         """
         Args:
-            collection_name: ChromaDB 컬렉션 이름
-            persist_directory: ChromaDB 영구 저장 디렉토리
+            collection_name: 일반 정책 ChromaDB 컬렉션 이름
+            persist_directory: 일반 정책 ChromaDB 영구 저장 디렉토리
+            law_collection_name: 법령 ChromaDB 컬렉션 이름
+            law_persist_directory: 법령 ChromaDB 영구 저장 디렉토리
             search_type: RAGChain 검색 방식
             use_reranker: Reranker 사용 여부
             initial_k: 초기 검색 문서 수
             final_k: 최종 사용 문서 수
-            graphrag_root_dir: GraphRAG 프로젝트 디렉토리
-            graphrag_community_level: GraphRAG 커뮤니티 수준
-            graphrag_method: GraphRAG 검색 방법 ("local" 또는 "global")
             use_quick_check: 키워드 사전 필터링 사용 여부
             router_model: QueryRouter LLM 모델
             eager_loading: True면 즉시 로딩, False면 Lazy Loading
@@ -99,18 +97,17 @@ class HybridRAGService:
         self.use_reranker = use_reranker
         self.initial_k = initial_k
         self.final_k = final_k
-        self.graphrag_method = graphrag_method
         self.use_quick_check = use_quick_check
         self.eager_loading = eager_loading
 
         # 컴포넌트 초기화
         self._rag_chain = None
-        self._graphrag_retriever = None
+        self._law_rag_chain = None
         self._query_router = None
         self._reranker = None
         self._llm = None
 
-        # 설정 저장
+        # 일반 정책 RAGChain 설정
         self._rag_chain_config = {
             "collection_name": collection_name,
             "persist_directory": persist_directory,
@@ -120,52 +117,60 @@ class HybridRAGService:
             "final_k": final_k,
             "eager_loading": eager_loading
         }
-        self._graphrag_config = {
-            "root_dir": graphrag_root_dir,
-            "community_level": graphrag_community_level
+
+        # 법령 RAGChain 설정
+        self._law_rag_chain_config = {
+            "collection_name": law_collection_name or settings.chroma_law_collection_name,
+            "persist_directory": law_persist_directory or str(settings.chroma_law_persist_dir),
+            "search_type": search_type,
+            "use_reranker": use_reranker,
+            "initial_k": initial_k,
+            "final_k": final_k,
+            "eager_loading": eager_loading
         }
+
         self._router_model = router_model
-        
+
         # Eager Loading: 즉시 컴포넌트 로드
         if eager_loading:
             self._init_all()
-    
+
     def _init_all(self):
         """모든 컴포넌트 즉시 초기화"""
         logger.info("Initializing HybridRAGService components")
-        
-        _ = self.rag_chain  # RAGChain (내부에서 vectorstore, llm, reranker 등 로드)
-        logger.info("RAGChain initialized")
-        
+
+        _ = self.rag_chain  # RAGChain (일반 정책)
+        logger.info("RAGChain (general) initialized")
+
+        _ = self.law_rag_chain  # LawRAGChain (법령)
+        logger.info("LawRAGChain (law) initialized")
+
         _ = self.query_router  # QueryRouter
         logger.info("QueryRouter initialized")
-        
-        _ = self.graphrag_retriever  # GraphRAG
-        logger.info("GraphRAG retriever initialized")
-        
-        # 법령 질문용 별도 Reranker (RAGChain의 것과 별개)
+
+        # 법령 질문용 별도 Reranker
         if settings.enable_reranking:
             from .contextual_retriever import Reranker
             logger.info("Initializing reranker for HybridRAG")
             self._reranker = Reranker(eager_loading=True)
         else:
             logger.info("Reranking disabled (ENABLE_RERANKING=false)")
-        
+
         logger.info("HybridRAGService initialization completed")
 
     @property
     def rag_chain(self) -> RAGChain:
-        """RAGChain 인스턴스 (Lazy Loading)"""
+        """일반 정책용 RAGChain 인스턴스 (Lazy Loading)"""
         if self._rag_chain is None:
             self._rag_chain = RAGChain(**self._rag_chain_config)
         return self._rag_chain
 
     @property
-    def graphrag_retriever(self) -> GraphRAGRetriever:
-        """GraphRAGRetriever 인스턴스 (Lazy Loading)"""
-        if self._graphrag_retriever is None:
-            self._graphrag_retriever = GraphRAGRetriever(**self._graphrag_config)
-        return self._graphrag_retriever
+    def law_rag_chain(self) -> RAGChain:
+        """법령용 RAGChain 인스턴스 (Lazy Loading)"""
+        if self._law_rag_chain is None:
+            self._law_rag_chain = RAGChain(**self._law_rag_chain_config)
+        return self._law_rag_chain
 
     @property
     def query_router(self) -> QueryRouter:
@@ -216,7 +221,7 @@ class HybridRAGService:
             force_rag_type: 강제 RAG 유형 지정
                 - "auto": 자동 라우팅 (기본)
                 - "general": 강제로 RAGChain 사용
-                - "law": 강제로 GraphRAG 사용
+                - "law": 강제로 LawRAGChain 사용
 
         Returns:
             HybridRAGResponse: 통합 응답
@@ -244,7 +249,7 @@ class HybridRAGService:
 
         # 2. 라우팅에 따라 적절한 RAG 실행
         if query_type == QueryType.LAW:
-            return self._query_graphrag(
+            return self._query_law(
                 question=question,
                 emotion=emotion,
                 router_result=router_result,
@@ -290,7 +295,7 @@ class HybridRAGService:
             logger.error(f"RAGChain query failed: {e}")
             raise
 
-    def _query_graphrag(
+    def _query_law(
         self,
         question: str,
         emotion: Emotion,
@@ -298,36 +303,27 @@ class HybridRAGService:
         chat_history: List = None
     ) -> HybridRAGResponse:
         """
-        GraphRAG + RAGChain 결합으로 법령 질문 처리
+        LawRAGChain으로 법령 질문 처리
 
-        두 검색 소스에서 각각 5개씩 문서를 가져와 Reranking 후
-        상위 5개 문서로 LLM 응답을 생성합니다.
+        법령 전용 ChromaDB에서 문서를 검색하여 응답을 생성합니다.
         """
-        logger.info(f"Using combined RAGChain + GraphRAG for law query: '{question[:50]}...'")
+        logger.info(f"Using LawRAGChain for law query: '{question[:50]}...'")
 
         try:
-            # 1. RAGChain에서 5개 문서 검색
-            ragchain_docs = self._retrieve_from_ragchain(question, k=5)
-            logger.info(f"RAGChain retrieved {len(ragchain_docs)} documents")
+            # 1. LawRAGChain에서 문서 검색
+            law_docs = self._retrieve_from_law_ragchain(question, k=self.final_k)
+            logger.info(f"LawRAGChain retrieved {len(law_docs)} documents")
 
-            # 2. GraphRAG에서 5개 문서 검색
-            graphrag_docs = self._retrieve_from_graphrag(question, k=5)
-            logger.info(f"GraphRAG retrieved {len(graphrag_docs)} documents")
-
-            # 3. 두 결과 병합
-            combined_docs = ragchain_docs + graphrag_docs
-            logger.info(f"Combined {len(combined_docs)} documents")
-
-            # 4. Reranking으로 상위 5개 선별 (옵션)
-            if settings.enable_reranking and len(combined_docs) > 5:
-                reranked_docs = self._rerank_documents(question, combined_docs, top_k=5)
+            # 2. Reranking (옵션)
+            if settings.enable_reranking and len(law_docs) > self.final_k:
+                reranked_docs = self._rerank_documents(question, law_docs, top_k=self.final_k)
                 logger.info(f"After reranking: {len(reranked_docs)} documents")
             else:
-                reranked_docs = combined_docs[:5]  # Reranking 없이 상위 5개만
+                reranked_docs = law_docs[:self.final_k]
                 if not settings.enable_reranking:
                     logger.info(f"Reranking disabled, using first {len(reranked_docs)} documents")
 
-            # 5. LLM으로 최종 답변 생성
+            # 3. LLM으로 최종 답변 생성
             answer = self._generate_answer(
                 question=question,
                 documents=reranked_docs,
@@ -339,16 +335,16 @@ class HybridRAGService:
                 answer=answer,
                 source_documents=reranked_docs,
                 emotion=emotion,
-                retrieval_method="ragchain+graphrag+rerank",
+                retrieval_method="law_ragchain",
                 query_type="law",
                 router_confidence=router_result.confidence,
                 router_reason=router_result.reason
             )
 
         except Exception as e:
-            logger.error(f"Combined RAG query failed: {e}")
-            # 실패 시 RAGChain으로 폴백
-            logger.warning("Falling back to RAGChain only...")
+            logger.error(f"LawRAGChain query failed: {e}")
+            # 실패 시 일반 RAGChain으로 폴백
+            logger.warning("Falling back to RAGChain...")
             return self._query_ragchain(
                 question=question,
                 emotion=emotion,
@@ -356,14 +352,14 @@ class HybridRAGService:
                 router_result=RouterResult(
                     query_type=QueryType.GENERAL,
                     confidence="fallback",
-                    reason=f"결합 RAG 실패로 폴백: {str(e)}"
+                    reason=f"법령 RAG 실패로 폴백: {str(e)}"
                 )
             )
 
-    def _retrieve_from_ragchain(self, question: str, k: int = 5) -> List[Document]:
-        """RAGChain에서 문서 검색"""
+    def _retrieve_from_law_ragchain(self, question: str, k: int = 5) -> List[Document]:
+        """LawRAGChain에서 문서 검색"""
         try:
-            retrieval_result = self.rag_chain.contextual_retriever.retrieve(
+            retrieval_result = self.law_rag_chain.contextual_retriever.retrieve(
                 query=question,
                 initial_k=k,
                 final_k=k,
@@ -371,26 +367,10 @@ class HybridRAGService:
             )
             # 메타데이터에 출처 표시
             for doc in retrieval_result.documents:
-                doc.metadata["retrieval_source"] = "ragchain"
+                doc.metadata["retrieval_source"] = "law_ragchain"
             return retrieval_result.documents
         except Exception as e:
-            logger.error(f"RAGChain retrieval failed: {e}")
-            return []
-
-    def _retrieve_from_graphrag(self, question: str, k: int = 5) -> List[Document]:
-        """GraphRAG에서 문서 검색"""
-        try:
-            docs = self.graphrag_retriever.retrieve_documents(
-                query=question,
-                k=k,
-                method=self.graphrag_method
-            )
-            # 메타데이터에 출처 표시
-            for doc in docs:
-                doc.metadata["retrieval_source"] = "graphrag"
-            return docs
-        except Exception as e:
-            logger.error(f"GraphRAG retrieval failed: {e}")
+            logger.error(f"LawRAGChain retrieval failed: {e}")
             return []
 
     def _rerank_documents(
@@ -471,7 +451,6 @@ class HybridRAGService:
         """
         감정에 따른 답변 톤 조정
 
-        GraphRAG 응답은 기본적으로 중립적이므로,
         필요시 감정에 맞는 인트로/아웃트로 추가
         """
         if emotion == Emotion.NEUTRAL:
@@ -504,17 +483,16 @@ class HybridRAGService:
             "service": "HybridRAGService",
             "search_type": self.search_type,
             "use_reranker": self.use_reranker,
-            "graphrag_method": self.graphrag_method,
             "use_quick_check": self.use_quick_check,
             "router_model": self._router_model
         }
 
-        # RAGChain 통계 (초기화된 경우)
+        # RAGChain 통계 (일반 정책)
         if self._rag_chain is not None:
             stats["rag_chain"] = self._rag_chain.get_stats()
 
-        # GraphRAG 통계 (초기화된 경우)
-        if self._graphrag_retriever is not None:
-            stats["graphrag"] = self._graphrag_retriever.get_stats()
+        # LawRAGChain 통계 (법령)
+        if self._law_rag_chain is not None:
+            stats["law_rag_chain"] = self._law_rag_chain.get_stats()
 
         return stats

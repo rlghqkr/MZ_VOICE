@@ -43,6 +43,28 @@ from app.services.rag import RAGChain, HybridRAGService
 from app.services.emotion import Emotion
 
 
+def _log_source_documents(documents, query_type: str = ""):
+    """Source documents 상세 출력 (원본 vs contextualized)"""
+    logger.info("-" * 40)
+    logger.info(f"Source Documents Detail ({query_type}):")
+    for i, doc in enumerate(documents):
+        logger.info(f"\n[Doc {i+1}]")
+        logger.info(f"  Metadata: {doc.metadata.get('source_file', 'N/A')} | {doc.metadata.get('chunk_type', 'N/A')}")
+        logger.info(f"  Has Context: {doc.metadata.get('has_context', False)}")
+
+        # Contextualized content (실제 검색에 사용된 내용)
+        contextualized = doc.page_content[:300]
+        logger.info(f"  [Contextualized]: {contextualized}...")
+
+        # Original content (원본 내용)
+        original = doc.metadata.get('original_content', '')
+        if original:
+            logger.info(f"  [Original]: {original[:300]}...")
+        else:
+            logger.info(f"  [Original]: (not available - same as contextualized)")
+    logger.info("-" * 40)
+
+
 def test_ragchain():
     """RAGChain 기본 테스트"""
     logger.info("Starting RAGChain basic test")
@@ -63,6 +85,9 @@ def test_ragchain():
     logger.info(f"Response length: {len(response.answer)} characters")
     logger.info(f"Source documents retrieved: {len(response.source_documents)}")
     logger.info(f"Response: {response.answer[:200]}...")
+
+    # Source documents 상세 출력
+    _log_source_documents(response.source_documents, "RAGChain")
 
 
 def test_hybrid_rag():
@@ -86,7 +111,10 @@ def test_hybrid_rag():
     logger.info(f"Query type: {response.query_type}")
     logger.info(f"Response length: {len(response.answer)} characters")
     logger.info(f"Response: {response.answer[:200]}...")
-    
+
+    # Source documents 상세 출력
+    _log_source_documents(response.source_documents, "GENERAL")
+
     # 법령 질문
     query2 = "청년기본법이 뭐야?"
     logger.info(f"Processing law query: '{query2}'")
@@ -99,6 +127,9 @@ def test_hybrid_rag():
     logger.info(f"Query type: {response.query_type}")
     logger.info(f"Response length: {len(response.answer)} characters")
     logger.info(f"Response: {response.answer[:200]}...")
+
+    # Source documents 상세 출력
+    _log_source_documents(response.source_documents, "LAW")
 
 
 if __name__ == "__main__":

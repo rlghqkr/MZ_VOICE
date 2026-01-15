@@ -55,7 +55,7 @@ def test_text_pipeline():
     init_time = time.time() - start_time
     logger.info(f"Pipeline initialized in {init_time:.2f}s")
     
-    query = "청년 복지 정책 알려줘"
+    query = "5ㆍ18민주유공자예우 및 단체설립에 관한 법률에 대해서 알려줘"
     logger.info(f"Processing text input: '{query}'")
     
     result = pipeline.process_text(query)

@@ -294,7 +294,7 @@ class ContextualRetriever:
         self,
         collection_name: str = None,
         persist_directory: str = None,
-        use_reranker: bool = True,
+        use_reranker: bool = False,
         reranker_model: str = "BAAI/bge-reranker-v2-m3"
     ):
         self.collection_name = collection_name or settings.chroma_collection_name
