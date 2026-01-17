@@ -54,7 +54,7 @@ def run_fastapi():
     uvicorn.run(
         "app.api.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=9000,
         reload=settings.debug
     )
 
@@ -72,7 +72,7 @@ def main():
         "--port",
         type=int,
         default=None,
-        help="서버 포트 (기본값: gradio=7860, fastapi=8000)"
+        help="서버 포트 (기본값: gradio=7860, fastapi=9000)"
     )
 
     args = parser.parse_args()

@@ -74,7 +74,7 @@ class Settings(BaseSettings):
 
     # FastAPI Configuration
     fastapi_host: str = Field(default="0.0.0.0", env="FASTAPI_HOST")
-    fastapi_port: int = Field(default=8000, env="FASTAPI_PORT")
+    fastapi_port: int = Field(default=9000, env="FASTAPI_PORT")
     cors_origins: str = Field(
         default="http://localhost:5173,http://localhost:3000",
         env="CORS_ORIGINS"

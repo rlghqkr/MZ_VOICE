@@ -144,7 +144,7 @@ npm install
 
 ```bash
 # FastAPI 서버 실행
-uvicorn app.api.main:app --reload --port 8000
+uvicorn app.api.main:app --reload --port 9000
 
 # 또는 Gradio UI로 실행
 python -m app.main
@@ -157,7 +157,7 @@ cd frontend
 npm run dev
 ```
 
-- Backend API: http://localhost:8000
+- Backend API: http://localhost:9000
 - Frontend: http://localhost:5173
 - Gradio UI: http://localhost:7860 (Gradio 모드 사용 시)
 
