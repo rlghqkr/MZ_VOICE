@@ -8,6 +8,7 @@ from typing import Generator, Optional, Tuple, Dict, Any
 import logging
 
 from .base import STTBase, TranscriptionResult
+from .llm_correction import correct_with_llm
 from ...config import settings
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,9 @@ class SenseVoiceSTT(STTBase):
         if not text:
             keys = list(payload.keys()) if isinstance(payload, dict) else []
             raise RuntimeError(f"ASR response missing text field: keys={keys}")
+
+        if settings.stt_llm_correction:
+            text = correct_with_llm(text)
 
         language_out = payload.get("language") or language
         confidence = self._to_float(payload.get("confidence"), default=0.0)

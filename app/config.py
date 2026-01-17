@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     asr_include_emotion: bool = Field(default=True, env="ASR_INCLUDE_EMOTION")
     asr_timeout_seconds: float = Field(default=30.0, env="ASR_TIMEOUT_SECONDS")
     asr_use_emotion: bool = Field(default=True, env="ASR_USE_EMOTION")
+    stt_llm_correction: bool = Field(default=False, env="STT_LLM_CORRECTION")
+    stt_llm_model: str = Field(default="gpt-4o-mini", env="STT_LLM_MODEL")
+    stt_llm_max_tokens: int = Field(default=100, env="STT_LLM_MAX_TOKENS")
     
     # TTS Configuration
     tts_provider: Literal["gtts", "edge", "clova"] = Field(
