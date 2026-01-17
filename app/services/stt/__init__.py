@@ -17,12 +17,14 @@ Example:
 
 from .base import STTBase, TranscriptionResult
 from .whisper_stt import WhisperSTT, MockWhisperSTT
+from .sensevoice import SenseVoiceSTT
 from .factory import STTFactory
 
 __all__ = [
     "STTBase",
     "TranscriptionResult",
     "WhisperSTT",
+    "SenseVoiceSTT",
     "MockWhisperSTT",
     "STTFactory",
 ]

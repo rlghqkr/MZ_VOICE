@@ -20,6 +20,9 @@ class TranscriptionResult:
     confidence: float = 0.0            # 신뢰도 (0.0 ~ 1.0)
     duration: float = 0.0              # 오디오 길이 (초)
     segments: Optional[list] = None    # 타임스탬프가 있는 세그먼트
+    emotion_label: Optional[str] = None
+    emotion_scores: Optional[dict] = None
+    extra: Optional[dict] = None
 
 
 class STTBase(ABC):

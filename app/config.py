@@ -16,12 +16,19 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", env="OPENAI_API_KEY")
     
     # STT Configuration
-    stt_provider: Literal["whisper", "clova", "returnzero"] = Field(
+    stt_provider: Literal["whisper", "sensevoice", "clova", "returnzero"] = Field(
         default="whisper",
         env="STT_PROVIDER"
     )
     whisper_model_size: str = Field(default="base", env="WHISPER_MODEL_SIZE")
     whisper_device: Literal["cuda", "cpu"] = Field(default="cpu", env="WHISPER_DEVICE")
+    asr_api_base_url: str = Field(
+        default="http://34.130.232.40:8000",
+        env="ASR_API_BASE_URL"
+    )
+    asr_include_emotion: bool = Field(default=True, env="ASR_INCLUDE_EMOTION")
+    asr_timeout_seconds: float = Field(default=30.0, env="ASR_TIMEOUT_SECONDS")
+    asr_use_emotion: bool = Field(default=True, env="ASR_USE_EMOTION")
     
     # TTS Configuration
     tts_provider: Literal["gtts", "edge", "clova"] = Field(
