@@ -8,10 +8,11 @@ STT 제공자에 따라 적절한 STT 구현체를 생성합니다.
 from typing import Literal
 from .base import STTBase
 from .whisper_stt import WhisperSTT, MockWhisperSTT
+from .sensevoice import SenseVoiceSTT
 from ...config import settings
 
 
-STTProvider = Literal["whisper", "clova", "returnzero", "mock"]
+STTProvider = Literal["whisper", "sensevoice", "clova", "returnzero", "mock"]
 
 
 class STTFactory:
@@ -34,6 +35,7 @@ class STTFactory:
     # 등록된 STT 제공자 매핑
     _providers = {
         "whisper": WhisperSTT,
+        "sensevoice": SenseVoiceSTT,
         "mock": MockWhisperSTT,
         # 추후 추가 가능:
         # "clova": ClovaSTT,

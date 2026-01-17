@@ -213,8 +213,19 @@ class VoiceRAGPipeline:
             result.transcription = self.stt.transcribe(audio)
 
             # Step 2: 감정 분석
-            logger.debug("Step 2: Emotion Analysis")
-            result.emotion = self.emotion_analyzer.analyze(audio)
+            if settings.asr_use_emotion and result.transcription.emotion_label:
+                logger.debug("Step 2: Emotion Analysis (ASR)")
+                primary = self._emotion_from_label(result.transcription.emotion_label)
+                scores = result.transcription.emotion_scores or {primary.value: 1.0}
+                confidence = float(scores.get(primary.value, 0.0))
+                result.emotion = EmotionResult(
+                    primary_emotion=primary,
+                    confidence=confidence,
+                    emotion_scores=scores
+                )
+            else:
+                logger.debug("Step 2: Emotion Analysis")
+                result.emotion = self.emotion_analyzer.analyze(audio)
 
             # Step 3: RAG (텍스트 + 감정 → 응답)
             logger.debug("Step 3: RAG")
@@ -390,6 +401,22 @@ class VoiceRAGPipeline:
         else:
             # LangChain 사용
             return self.rag.query(question, emotion), None, None
+
+    @staticmethod
+    def _emotion_from_label(label: str) -> Emotion:
+        if not label:
+            return Emotion.NEUTRAL
+
+        normalized = label.strip().lower()
+        mapping = {
+            "angry": Emotion.ANGRY,
+            "happy": Emotion.HAPPY,
+            "sad": Emotion.SAD,
+            "neutral": Emotion.NEUTRAL,
+            "fearful": Emotion.FEARFUL,
+            "surprised": Emotion.SURPRISED,
+        }
+        return mapping.get(normalized, Emotion.NEUTRAL)
 
     # ============ 스트리밍 처리 ============
 
