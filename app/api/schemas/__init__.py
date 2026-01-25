@@ -8,8 +8,10 @@ from .session import (
     SessionResponse,
     SessionEndResponse,
     MessageResponse,
+    SummarizeRequest,
+    SummarizeResponse,
 )
-from .voice import VoiceProcessResponse
+from .voice import VoiceProcessResponse, VoiceStreamEvent
 from .text import TextProcessRequest, TextProcessResponse
 
 __all__ = [
@@ -19,7 +21,10 @@ __all__ = [
     "SessionResponse",
     "SessionEndResponse",
     "MessageResponse",
+    "SummarizeRequest",
+    "SummarizeResponse",
     "VoiceProcessResponse",
+    "VoiceStreamEvent",
     "TextProcessRequest",
     "TextProcessResponse",
 ]

@@ -13,7 +13,7 @@ TTSProvider = Literal["gtts", "edge", "clova", "mock"]
 
 class TTSFactory:
     """TTS 객체 생성 팩토리"""
-    
+
     _providers = {
         "gtts": gTTSTTS,
         "mock": MockTTS,

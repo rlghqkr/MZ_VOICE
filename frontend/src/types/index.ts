@@ -34,6 +34,12 @@ export interface SessionEndResult {
   error?: string;
 }
 
+export interface SummarizeResult {
+  summary: string;
+  success: boolean;
+  error?: string;
+}
+
 // API Response types
 export interface VoiceProcessResponse {
   transcription: string;

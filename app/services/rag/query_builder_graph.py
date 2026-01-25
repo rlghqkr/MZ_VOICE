@@ -78,7 +78,7 @@ class UserProfile:
     def get_missing_essential_fields(self) -> List[str]:
         """필수 정보 중 누락된 필드 반환"""
         missing = []
-        if not self.interests and not self.specific_needs:
+        if not self.interests:
             missing.append("interest")
         if not self.region:
             missing.append("region")
@@ -86,7 +86,7 @@ class UserProfile:
 
     def is_sufficient(self) -> bool:
         """RAG 쿼리를 위한 최소 정보가 충분한지 확인"""
-        has_interest = bool(self.interests or self.specific_needs)
+        has_interest = bool(self.interests)
         has_region = bool(self.region)
         return has_interest and has_region
 
@@ -496,7 +496,7 @@ class QueryBuilderGraph:
         score = 0.0
 
         # 필수 정보 (0.6)
-        if profile.interests or profile.specific_needs:
+        if profile.interests:
             score += 0.4
         if profile.region:
             score += 0.2
@@ -603,6 +603,17 @@ class QueryBuilderGraph:
         """
         # 세션 상태 가져오기
         session_state = self._get_or_create_session(session_id)
+
+        # 날씨 관련 질문 체크
+        if "날씨" in message:
+            return GraphAgentResponse(
+                message="저희는 복지 정보 콜봇입니다. 필요하신 복지 정보에 대해서 물어봐주세요.",
+                phase=ConversationPhase.COLLECTING,
+                user_profile=UserProfile.from_dict(session_state.get("user_profile", {})),
+                rag_query=None,
+                follow_up_questions=[],
+                confidence=0.0
+            )
 
         # 첫 질문 저장
         if session_state["original_question"] is None:

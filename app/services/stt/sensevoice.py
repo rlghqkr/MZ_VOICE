@@ -60,8 +60,14 @@ class SenseVoiceSTT(STTBase):
 
         text = self._extract_text(payload)
         if not text:
-            keys = list(payload.keys()) if isinstance(payload, dict) else []
-            raise RuntimeError(f"ASR response missing text field: keys={keys}")
+            # 텍스트가 비어있는 경우 (음성 인식 실패 또는 무음)
+            raw_text = payload.get("text", "") if isinstance(payload, dict) else ""
+            if raw_text == "" or (isinstance(raw_text, str) and not raw_text.strip()):
+                logger.warning("ASR returned empty text - possibly silent audio or recognition failed")
+                text = ""  # 빈 텍스트로 처리 (에러 대신)
+            else:
+                keys = list(payload.keys()) if isinstance(payload, dict) else []
+                raise RuntimeError(f"ASR response missing text field: keys={keys}")
 
         if settings.stt_llm_correction:
             text = correct_with_llm(text)

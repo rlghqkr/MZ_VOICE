@@ -47,3 +47,15 @@ class SessionMessagesResponse(BaseModel):
 class EmailUpdateRequest(BaseModel):
     """Email update request"""
     email: str
+
+
+class SummarizeRequest(BaseModel):
+    """Summarize conversation request"""
+    messages: List[MessageResponse]
+
+
+class SummarizeResponse(BaseModel):
+    """Summarize response"""
+    summary: str
+    success: bool
+    error: Optional[str] = None

@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useVoiceRecording } from '../hooks';
 import { useChatStore, useSessionStore } from '../store';
+import { AudioStreamPlayer } from '../api/voice';
 
-export function VoiceRecorder() {
+interface VoiceRecorderProps {
+  streamingMode?: boolean;
+}
+
+export function VoiceRecorder({ streamingMode = true }: VoiceRecorderProps) {
   const {
     isRecording,
     audioBlob,
@@ -13,13 +18,58 @@ export function VoiceRecorder() {
     error: recordingError,
   } = useVoiceRecording();
 
-  const { sendVoiceMessage, isLoading } = useChatStore();
+  const { sendVoiceMessage, sendVoiceMessageStream, isLoading, isStreaming } = useChatStore();
   const { sessionId } = useSessionStore();
   const [isSending, setIsSending] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPlayingText, setCurrentPlayingText] = useState('');
+  const audioPlayerRef = useRef<AudioStreamPlayer | null>(null);
+  const streamAbortRef = useRef<{ abort: () => void } | null>(null);
+
+  const handleAudioChunk = useCallback((audio: string, text: string) => {
+    if (!audioPlayerRef.current) {
+      audioPlayerRef.current = new AudioStreamPlayer((playingText) => {
+        setCurrentPlayingText(playingText);
+        setIsPlaying(true);
+      });
+    }
+    audioPlayerRef.current.addAudioChunk(audio, text);
+  }, []);
+
+  const handleSendStream = () => {
+    if (!audioBlob || isSending) return;
+
+    setIsSending(true);
+    setIsPlaying(false);
+    setCurrentPlayingText('');
+
+    // 이전 오디오 플레이어 정리
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.stop();
+      audioPlayerRef.current = null;
+    }
+
+    // 스트리밍 시작
+    streamAbortRef.current = sendVoiceMessageStream(
+      audioBlob,
+      sessionId || undefined,
+      handleAudioChunk
+    );
+
+    clearRecording();
+    setIsSending(false);
+  };
 
   const handleSend = async () => {
     if (!audioBlob || isSending) return;
 
+    // 스트리밍 모드가 활성화되어 있으면 스트리밍 방식 사용
+    if (streamingMode) {
+      handleSendStream();
+      return;
+    }
+
+    // 기존 방식
     setIsSending(true);
     try {
       await sendVoiceMessage(audioBlob, sessionId || undefined);
@@ -29,13 +79,26 @@ export function VoiceRecorder() {
     }
   };
 
+  const handleStopPlayback = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.stop();
+      audioPlayerRef.current = null;
+    }
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+    setIsPlaying(false);
+    setCurrentPlayingText('');
+  };
+
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const isProcessing = isLoading || isSending;
+  const isProcessing = isLoading || isSending || isStreaming;
 
   return (
     <div className="space-y-4">
@@ -104,11 +167,45 @@ export function VoiceRecorder() {
           </span>
         )}
 
-        {/* Processing state */}
+        {/* Processing/Streaming state */}
         {isProcessing && !isRecording && (
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-6 border-2 border-neon-cyan border-t-transparent rounded-full animate-spin glow-cyan" />
-            <span className="text-neon-cyan text-sm">Processing...</span>
+          <div className="flex items-center gap-3 flex-1">
+            {isStreaming ? (
+              <>
+                <div className="flex items-center gap-1 h-8">
+                  {[...Array(5)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-1 bg-gradient-to-t from-neon-cyan to-neon-blue rounded-full"
+                      style={{
+                        height: `${20 + Math.random() * 60}%`,
+                        animation: 'pulse 0.5s ease-in-out infinite',
+                        animationDelay: `${i * 0.1}s`
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="flex-1">
+                  <span className="text-neon-cyan text-sm">Speaking...</span>
+                  {currentPlayingText && (
+                    <p className="text-xs text-gray-400 mt-1 truncate max-w-xs">
+                      {currentPlayingText}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleStopPlayback}
+                  className="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 glass-light rounded-lg transition-all duration-300"
+                >
+                  Stop
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-6 h-6 border-2 border-neon-cyan border-t-transparent rounded-full animate-spin glow-cyan" />
+                <span className="text-neon-cyan text-sm">Processing...</span>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -137,7 +234,7 @@ export function VoiceRecorder() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
-            Send
+            {streamingMode ? 'Call' : 'Send'}
           </button>
         </div>
       )}

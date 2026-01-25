@@ -10,8 +10,11 @@ from ..schemas import (
     SessionResponse,
     SessionEndResponse,
     MessageResponse,
+    SummarizeRequest,
+    SummarizeResponse,
 )
 from ..schemas.session import SessionMessagesResponse, EmailUpdateRequest
+from ...services.summary import LLMSummarizer
 from ..dependencies import get_session_manager, get_pipeline
 from ...services.session import SessionManager
 from ...pipelines import VoiceRAGPipeline
@@ -151,3 +154,40 @@ async def delete_session(
     manager.cleanup_session(session_id)
 
     return {"success": True, "message": f"Session {session_id} deleted"}
+
+
+@router.post("/summarize", response_model=SummarizeResponse)
+async def summarize_conversation(request: SummarizeRequest):
+    """
+    대화 내용을 요약합니다 (세션 없이 직접 요약)
+
+    Frontend에서 대화 메시지 목록을 전달하면 LLM이 요약을 생성합니다.
+    """
+    if not request.messages:
+        return SummarizeResponse(
+            summary="대화 내용이 없습니다.",
+            success=True
+        )
+
+    try:
+        # 대화 내용을 텍스트로 변환
+        lines = []
+        for msg in request.messages:
+            role_label = "고객" if msg.role == "user" else "상담사"
+            lines.append(f"[{role_label}] {msg.content}")
+        conversation_text = "\n".join(lines)
+
+        # LLM으로 요약 생성
+        summarizer = LLMSummarizer()
+        summary = summarizer.summarize(conversation_text)
+
+        return SummarizeResponse(
+            summary=summary,
+            success=True
+        )
+    except Exception as e:
+        return SummarizeResponse(
+            summary="",
+            success=False,
+            error=str(e)
+        )

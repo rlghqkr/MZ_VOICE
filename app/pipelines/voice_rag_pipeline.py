@@ -10,9 +10,12 @@ Hybrid RAG 지원:
 """
 
 import logging
+import base64
 from dataclasses import dataclass
-from typing import Optional, Generator, Literal
+from typing import Optional, Generator, Literal, Dict, Any
 import time
+
+from ..services.tts.base import split_into_sentences
 
 from ..services.stt import STTFactory, STTBase, TranscriptionResult
 from ..services.tts import TTSFactory, TTSBase, SynthesisResult
@@ -192,7 +195,8 @@ class VoiceRAGPipeline:
     def process_voice(
         self,
         audio: bytes,
-        return_audio: bool = True
+        return_audio: bool = True,
+        session_id: str = "default"
     ) -> PipelineResult:
         """
         음성 입력 처리 (전체 파이프라인)
@@ -200,6 +204,7 @@ class VoiceRAGPipeline:
         Args:
             audio: 음성 데이터 (WAV 형식)
             return_audio: True면 TTS 결과 포함
+            session_id: 세션 ID (QueryBuilder 상태 관리용)
 
         Returns:
             PipelineResult: 전체 처리 결과
@@ -211,6 +216,13 @@ class VoiceRAGPipeline:
             # Step 1: STT (음성 → 텍스트)
             logger.debug("Step 1: STT")
             result.transcription = self.stt.transcribe(audio)
+
+            # 빈 텍스트 처리 (음성 인식 실패 또는 무음)
+            if not result.transcription.text or not result.transcription.text.strip():
+                logger.warning("Empty transcription - returning error message")
+                result.output_text = "죄송합니다, 음성을 인식하지 못했습니다. 다시 말씀해 주세요."
+                result.processing_time = time.time() - start_time
+                return result
 
             # Step 2: 감정 분석
             if settings.asr_use_emotion and result.transcription.emotion_label:
@@ -227,16 +239,45 @@ class VoiceRAGPipeline:
                 logger.debug("Step 2: Emotion Analysis")
                 result.emotion = self.emotion_analyzer.analyze(audio)
 
-            # Step 3: RAG (텍스트 + 감정 → 응답)
-            logger.debug("Step 3: RAG")
-            rag_response, hybrid_response, query_type = self._get_rag_response(
-                question=result.transcription.text,
-                emotion=result.emotion.primary_emotion
-            )
-            result.rag_response = rag_response
-            result.hybrid_rag_response = hybrid_response
-            result.query_type = query_type
-            result.output_text = rag_response.answer
+            # Step 3: QueryBuilder 또는 RAG
+            if self.use_query_builder:
+                logger.debug("Step 3: QueryBuilder")
+                agent_response = self.query_builder.process(
+                    message=result.transcription.text,
+                    session_id=session_id,
+                    emotion=result.emotion.primary_emotion.value if result.emotion else None
+                )
+                result.agent_response = agent_response
+
+                if agent_response.phase == ConversationPhase.READY:
+                    # 정보 충분 - RAG 쿼리 실행
+                    result.needs_more_info = False
+                    rag_query = agent_response.rag_query or result.transcription.text
+
+                    logger.debug("Step 3-1: RAG (정보 수집 완료)")
+                    rag_response, hybrid_response, query_type = self._get_rag_response(
+                        question=rag_query,
+                        emotion=result.emotion.primary_emotion
+                    )
+                    result.rag_response = rag_response
+                    result.hybrid_rag_response = hybrid_response
+                    result.query_type = query_type
+                    result.output_text = rag_response.answer
+                else:
+                    # 추가 정보 필요 - 에이전트 메시지 반환
+                    result.needs_more_info = True
+                    result.output_text = agent_response.message
+            else:
+                # QueryBuilder 미사용 - 직접 RAG 실행
+                logger.debug("Step 3: RAG (직접 실행)")
+                rag_response, hybrid_response, query_type = self._get_rag_response(
+                    question=result.transcription.text,
+                    emotion=result.emotion.primary_emotion
+                )
+                result.rag_response = rag_response
+                result.hybrid_rag_response = hybrid_response
+                result.query_type = query_type
+                result.output_text = rag_response.answer
 
             # Step 4: TTS (응답 → 음성)
             if return_audio:
@@ -275,7 +316,6 @@ class VoiceRAGPipeline:
 
         try:
             if self.use_query_builder:
-                # Step 1: QueryBuilderGraph로 정보 수집/쿼리 생성
                 agent_response = self.query_builder.process(
                     message=text,
                     session_id=session_id,
@@ -471,3 +511,250 @@ class VoiceRAGPipeline:
         if self._query_builder is not None:
             return self._query_builder.get_profile(session_id)
         return None
+
+    # ============ 실시간 스트리밍 처리 ============
+
+    def process_voice_stream_realtime(
+        self,
+        audio: bytes,
+        session_id: str = "default"
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        실시간 음성 처리 - 전화처럼 응답을 바로 TTS로 출력
+
+        SSE 이벤트 스트림으로 결과를 반환합니다:
+        - transcription: 음성 인식 결과
+        - emotion: 감정 분석 결과
+        - text_chunk: LLM 응답 텍스트 청크
+        - audio_chunk: TTS 오디오 청크 (base64 인코딩)
+        - done: 처리 완료
+
+        Args:
+            audio: 음성 데이터 (WAV 형식)
+            session_id: 세션 ID
+
+        Yields:
+            Dict: SSE 이벤트 데이터
+        """
+        start_time = time.time()
+
+        try:
+            # Step 1: STT (음성 → 텍스트)
+            logger.debug("Streaming Step 1: STT")
+            transcription = self.stt.transcribe(audio)
+
+            if not transcription.text or not transcription.text.strip():
+                yield {
+                    "event": "error",
+                    "data": {"message": "음성을 인식하지 못했습니다. 다시 말씀해 주세요."}
+                }
+                return
+
+            yield {
+                "event": "transcription",
+                "data": {
+                    "text": transcription.text,
+                    "confidence": transcription.confidence or 0.0
+                }
+            }
+
+            # Step 2: 감정 분석 (병렬 처리 가능하지만 순차 처리)
+            logger.debug("Streaming Step 2: Emotion Analysis")
+            if settings.asr_use_emotion and transcription.emotion_label:
+                primary = self._emotion_from_label(transcription.emotion_label)
+                scores = transcription.emotion_scores or {primary.value: 1.0}
+                confidence = float(scores.get(primary.value, 0.0))
+                emotion_result = EmotionResult(
+                    primary_emotion=primary,
+                    confidence=confidence,
+                    emotion_scores=scores
+                )
+            else:
+                emotion_result = self.emotion_analyzer.analyze(audio)
+
+            yield {
+                "event": "emotion",
+                "data": {
+                    "emotion": emotion_result.primary_emotion.value,
+                    "korean_label": emotion_result.korean_label,
+                    "confidence": emotion_result.confidence
+                }
+            }
+
+            # Step 3: RAG 스트리밍 응답 + TTS
+            logger.debug("Streaming Step 3: RAG + TTS Streaming")
+
+            # QueryBuilder 처리
+            if self.use_query_builder:
+                agent_response = self.query_builder.process(
+                    message=transcription.text,
+                    session_id=session_id,
+                    emotion=emotion_result.primary_emotion.value
+                )
+
+                if agent_response.phase != ConversationPhase.READY:
+                    # 추가 정보 필요 - 에이전트 메시지를 TTS로 변환
+                    yield from self._stream_text_with_tts(
+                        agent_response.message,
+                        is_followup=True
+                    )
+                    yield {
+                        "event": "done",
+                        "data": {
+                            "processing_time": time.time() - start_time,
+                            "needs_more_info": True,
+                            "conversation_phase": agent_response.phase.value
+                        }
+                    }
+                    return
+
+                rag_query = agent_response.rag_query or transcription.text
+            else:
+                rag_query = transcription.text
+
+            # RAG 스트리밍 + 문장 단위 TTS
+            yield from self._stream_rag_with_tts(
+                question=rag_query,
+                emotion=emotion_result.primary_emotion
+            )
+
+            yield {
+                "event": "done",
+                "data": {
+                    "processing_time": time.time() - start_time,
+                    "needs_more_info": False
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Streaming pipeline error: {e}")
+            yield {
+                "event": "error",
+                "data": {"message": str(e)}
+            }
+
+    def _stream_rag_with_tts(
+        self,
+        question: str,
+        emotion: Emotion
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        RAG 스트리밍 응답을 문장 단위로 TTS 변환하여 전송
+
+        LLM이 문장을 완성할 때마다 즉시 TTS 합성하여 전송합니다.
+        모든 완성된 문장은 반드시 TTS로 변환됩니다.
+        """
+        import re
+
+        full_text = ""  # 전체 텍스트 누적
+        tts_processed_length = 0  # TTS로 처리한 문자 위치
+
+        # RAG 스트리밍
+        if self.use_hybrid_rag:
+            text_stream = self.hybrid_rag.query_stream(
+                question=question,
+                emotion=emotion,
+                force_rag_type=self.rag_mode
+            )
+        else:
+            text_stream = self.rag.query_stream(
+                question=question,
+                emotion=emotion
+            )
+
+        for chunk in text_stream:
+            full_text += chunk
+
+            # 텍스트 청크 전송
+            yield {
+                "event": "text_chunk",
+                "data": {"text": chunk}
+            }
+
+            # 아직 TTS 처리하지 않은 부분에서 완성된 문장 찾기
+            unprocessed_text = full_text[tts_processed_length:]
+
+            # 문장 종결 부호 위치 찾기 (. ! ? 등)
+            sentence_end_pattern = r'[.!?。？！]'
+            matches = list(re.finditer(sentence_end_pattern, unprocessed_text))
+
+            if matches:
+                # 마지막 종결 부호까지의 텍스트를 처리
+                last_match = matches[-1]
+                end_pos = last_match.end()
+
+                completed_text = unprocessed_text[:end_pos].strip()
+
+                if completed_text:
+                    # 완성된 텍스트를 문장 단위로 분리하여 TTS
+                    sentences = split_into_sentences(completed_text)
+
+                    for sentence in sentences:
+                        if sentence.strip():
+                            audio_bytes = self._synthesize_sentence(sentence)
+                            if audio_bytes:
+                                yield {
+                                    "event": "audio_chunk",
+                                    "data": {
+                                        "audio": base64.b64encode(audio_bytes).decode('utf-8'),
+                                        "text": sentence,
+                                        "format": "mp3"
+                                    }
+                                }
+
+                    # 처리 완료 위치 업데이트
+                    tts_processed_length += end_pos
+
+        # 남은 텍스트 처리 (마지막 문장 - 종결 부호가 없을 수 있음)
+        remaining_text = full_text[tts_processed_length:].strip()
+        if remaining_text:
+            audio_bytes = self._synthesize_sentence(remaining_text)
+            if audio_bytes:
+                yield {
+                    "event": "audio_chunk",
+                    "data": {
+                        "audio": base64.b64encode(audio_bytes).decode('utf-8'),
+                        "text": remaining_text,
+                        "format": "mp3"
+                    }
+                }
+
+    def _stream_text_with_tts(
+        self,
+        text: str,
+        is_followup: bool = False
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        텍스트를 문장 단위로 TTS 변환하여 스트리밍
+        (QueryBuilder 팔로우업 질문 등에 사용)
+        """
+        sentences = split_into_sentences(text)
+
+        for sentence in sentences:
+            if sentence.strip():
+                # 텍스트 청크 전송
+                yield {
+                    "event": "text_chunk",
+                    "data": {"text": sentence}
+                }
+
+                # TTS 합성 및 전송
+                audio_bytes = self._synthesize_sentence(sentence)
+                if audio_bytes:
+                    yield {
+                        "event": "audio_chunk",
+                        "data": {
+                            "audio": base64.b64encode(audio_bytes).decode('utf-8'),
+                            "text": sentence,
+                            "format": "mp3"
+                        }
+                    }
+
+    def _synthesize_sentence(self, sentence: str) -> Optional[bytes]:
+        """단일 문장을 TTS로 합성"""
+        try:
+            result = self.tts.synthesize(sentence)
+            return result.audio
+        except Exception as e:
+            logger.error(f"TTS synthesis failed for sentence: {e}")
+            return None

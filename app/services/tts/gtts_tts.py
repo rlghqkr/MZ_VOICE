@@ -16,22 +16,28 @@ logger = logging.getLogger(__name__)
 class gTTSTTS(TTSBase):
     """
     Google TTS 기반 Text-to-Speech 구현
-    
+
     무료로 사용할 수 있으며, 다양한 언어를 지원합니다.
     음질은 기본적이지만 프로토타입에 적합합니다.
-    
+
     Example:
         tts = gTTSTTS()
         result = tts.synthesize("안녕하세요")
+
+        # 빠른 속도
+        tts = gTTSTTS(speed=1.2)
+        result = tts.synthesize("안녕하세요")
     """
-    
-    def __init__(self, slow: bool = False):
+
+    def __init__(self, slow: bool = False, speed: float = 1.3):
         """
         Args:
             slow: True면 천천히 읽음
+            speed: 재생 속도 배율 (1.0=기본, 1.2=20% 빠르게, 0.8=20% 느리게)
         """
         self.slow = slow
-    
+        self.speed = speed
+
     def synthesize(self, text: str, language: str = "ko") -> SynthesisResult:
         """
         텍스트를 음성으로 변환
@@ -55,6 +61,10 @@ class gTTSTTS(TTSBase):
             audio_buffer.seek(0)
             audio_bytes = audio_buffer.read()
 
+            # 속도 조절 (1.0이 아닌 경우)
+            if self.speed != 1.0:
+                audio_bytes = self._adjust_speed(audio_bytes)
+
             return SynthesisResult(
                 audio=audio_bytes,
                 sample_rate=24000,
@@ -68,12 +78,42 @@ class gTTSTTS(TTSBase):
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
             raise
-    
+
+    def _adjust_speed(self, audio_bytes: bytes) -> bytes:
+        """오디오 재생 속도 조절"""
+        try:
+            from pydub import AudioSegment
+
+            # MP3 로드
+            audio = AudioSegment.from_mp3(io.BytesIO(audio_bytes))
+
+            # 속도 조절 (프레임 레이트 변경 후 원래 레이트로 변환)
+            sound_with_altered_frame_rate = audio._spawn(
+                audio.raw_data,
+                overrides={"frame_rate": int(audio.frame_rate * self.speed)}
+            )
+            adjusted_audio = sound_with_altered_frame_rate.set_frame_rate(audio.frame_rate)
+
+            # MP3로 내보내기
+            output_buffer = io.BytesIO()
+            adjusted_audio.export(output_buffer, format="mp3")
+            output_buffer.seek(0)
+
+            return output_buffer.read()
+
+        except ImportError:
+            logger.warning("pydub not installed, speed adjustment skipped")
+            return audio_bytes
+        except Exception as e:
+            logger.warning(f"Speed adjustment failed: {e}, using original")
+            return audio_bytes
+
     def _estimate_duration(self, text: str) -> float:
         """텍스트 길이로 대략적인 오디오 길이 추정"""
         # 한국어 기준 약 5글자/초
         chars_per_second = 5 if not self.slow else 3
-        return len(text) / chars_per_second
+        # 속도 배율 적용
+        return len(text) / (chars_per_second * self.speed)
     
     def _mp3_to_wav(self, mp3_bytes: bytes) -> bytes:
         """MP3를 WAV로 변환 (pydub 필요)"""

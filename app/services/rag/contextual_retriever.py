@@ -1,15 +1,3 @@
-"""
-Contextual Retrieval Implementation
-
-Anthropic의 Contextual Retrieval 방식을 구현합니다.
-- Contextual Embeddings: 청크에 문맥 정보를 추가하여 임베딩
-- BM25: 키워드 기반 검색
-- Hybrid Search: 임베딩 + BM25 결합
-- Reranking: 검색 결과 재정렬
-
-Reference: https://www.anthropic.com/engineering/contextual-retrieval
-"""
-
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass

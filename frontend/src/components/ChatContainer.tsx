@@ -3,24 +3,26 @@ import { useSessionStore, useChatStore } from '../store';
 import { MessageList } from './MessageList';
 import { TextInput } from './TextInput';
 import { VoiceRecorder } from './VoiceRecorder';
-import { SessionEndResult } from '../types';
+import { SummarizeResult } from '../types';
+import * as api from '../api';
 
 type InputMode = 'text' | 'voice';
 
 export function ChatContainer() {
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [showSummary, setShowSummary] = useState(false);
-  const [sessionResult, setSessionResult] = useState<SessionEndResult | null>(null);
+  const [summaryResult, setSummaryResult] = useState<SummarizeResult | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   const {
     sessionId,
     createSession,
-    endSession,
+    clearSession,
     isLoading: sessionLoading,
     error: sessionError,
   } = useSessionStore();
 
-  const { clearMessages, error: chatError } = useChatStore();
+  const { messages, clearMessages, error: chatError } = useChatStore();
 
   useEffect(() => {
     if (!sessionId && !sessionLoading) {
@@ -29,21 +31,38 @@ export function ChatContainer() {
   }, [sessionId, sessionLoading, createSession]);
 
   const handleEndSession = async () => {
+    if (messages.length === 0) {
+      // 대화가 없으면 바로 새 세션 시작
+      clearMessages();
+      clearSession();
+      await createSession();
+      return;
+    }
+
+    setIsSummarizing(true);
     try {
-      const result = await endSession();
-      if (result) {
-        setSessionResult(result);
-        setShowSummary(true);
-      }
+      // 대화 내용을 직접 전달하여 요약 요청
+      const result = await api.summarizeConversation(messages);
+      setSummaryResult(result);
+      setShowSummary(true);
     } catch (error) {
-      console.error('Failed to end session:', error);
+      console.error('Failed to summarize:', error);
+      setSummaryResult({
+        summary: '',
+        success: false,
+        error: '요약 생성에 실패했습니다.',
+      });
+      setShowSummary(true);
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
   const handleNewSession = async () => {
     setShowSummary(false);
-    setSessionResult(null);
+    setSummaryResult(null);
     clearMessages();
+    clearSession();
     await createSession();
   };
 
@@ -97,10 +116,10 @@ export function ChatContainer() {
           )}
           <button
             onClick={handleEndSession}
-            disabled={sessionLoading || !sessionId}
+            disabled={sessionLoading || isSummarizing || !sessionId}
             className="px-4 py-2 text-sm text-red-400 hover:text-red-300 glass-light rounded-lg transition-all duration-300 hover:shadow-[0_0_15px_rgba(239,68,68,0.3)] disabled:opacity-50 disabled:hover:shadow-none"
           >
-            End Session
+            {isSummarizing ? 'Summarizing...' : 'End Session'}
           </button>
         </div>
       </div>
@@ -136,39 +155,30 @@ export function ChatContainer() {
       )}
 
       {/* Session summary modal */}
-      {showSummary && sessionResult && (
+      {showSummary && summaryResult && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="card-dark p-8 max-w-lg w-full mx-4 glow-gradient">
             <h3 className="text-2xl font-bold gradient-text mb-6">
               Session Completed
             </h3>
 
-            {sessionResult.summary && (
+            {summaryResult.success && summaryResult.summary && (
               <div className="mb-6">
                 <h4 className="text-sm font-medium text-gray-400 mb-3">
                   Session Summary
                 </h4>
                 <p className="text-gray-200 glass-light p-4 rounded-xl whitespace-pre-wrap leading-relaxed">
-                  {sessionResult.summary}
+                  {summaryResult.summary}
                 </p>
               </div>
             )}
 
-            {sessionResult.mail_sent && (
-              <p className="text-sm text-green-400 mb-6 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Summary has been sent to your email.
-              </p>
-            )}
-
-            {sessionResult.error && (
+            {summaryResult.error && (
               <p className="text-sm text-red-400 mb-6 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Error: {sessionResult.error}
+                Error: {summaryResult.error}
               </p>
             )}
 

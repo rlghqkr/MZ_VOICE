@@ -13,7 +13,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Generator
 from dataclasses import dataclass
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -795,3 +795,62 @@ class RAGChain:
             "initial_k": self.initial_k,
             "final_k": self.final_k
         }
+
+    def query_stream(
+        self,
+        question: str,
+        emotion: Emotion = None,
+        chat_history: List = None,
+        search_type: str = None
+    ) -> Generator[str, None, None]:
+        """
+        스트리밍 RAG 응답 생성
+
+        LLM 응답을 청크 단위로 yield합니다.
+
+        Args:
+            question: 사용자 질문
+            emotion: 감지된 감정 (프롬프트에 반영)
+            chat_history: 대화 히스토리 (선택)
+            search_type: 검색 방식 (None이면 인스턴스 설정 사용)
+
+        Yields:
+            str: 응답 텍스트 청크
+        """
+        emotion = emotion or Emotion.NEUTRAL
+        search_type = search_type or self.search_type
+
+        # 1. 관련 문서 검색
+        if search_type in ["hybrid", "bm25"]:
+            retrieval_result = self.contextual_retriever.retrieve(
+                query=question,
+                initial_k=self.initial_k,
+                final_k=self.final_k,
+                search_type=search_type
+            )
+            retrieved_docs = retrieval_result.documents
+        else:
+            retrieved_docs = self.retriever.invoke(question)
+
+        logger.info(f"Retrieved {len(retrieved_docs)} docs for streaming")
+
+        # 2. 컨텍스트 구성
+        context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+
+        # 3. 감정 기반 시스템 프롬프트 생성
+        system_prompt = build_system_prompt(emotion)
+
+        # 4. 입력 구성
+        chain_input = {
+            "system_prompt": system_prompt,
+            "context": context,
+            "question": question,
+            "chat_history": chat_history or []
+        }
+
+        # 5. 스트리밍 응답 생성
+        chain = RAG_PROMPT_TEMPLATE | self.llm
+
+        for chunk in chain.stream(chain_input):
+            if hasattr(chunk, 'content') and chunk.content:
+                yield chunk.content
